@@ -1,0 +1,5 @@
+{
+  "name": "VoiceAction",
+  "description": "A premium editorial intelligence platform for capturing thoughts via voice and text with a cinematic Solar Monolith aesthetic.",
+  "requestFramePermissions": ["microphone"]
+}

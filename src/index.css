@@ -1,0 +1,88 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@800&family=Manrope:wght@500;600;700;800&display=swap');
+
+@theme {
+  --font-headline: "Space Grotesk", sans-serif;
+  --font-body: "Manrope", sans-serif;
+
+  --color-base: var(--base);
+  --color-surface: var(--surface);
+  --color-surface-low: var(--surface-low);
+  --color-surface-high: var(--surface-high);
+  --color-surface-highest: var(--surface-highest);
+  --color-surface-bright: var(--surface-bright);
+  
+  --color-primary: #f97316;
+  --color-primary-dim: #fd761a;
+  
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-text-secondary: var(--text-secondary);
+
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+:root {
+  --base: #F9F8F6;
+  --surface: #FFFFFF;
+  --surface-low: #F1F0EE;
+  --surface-high: #E5E4E2;
+  --surface-highest: #D9D8D6;
+  --surface-bright: #CECDCB;
+  
+  --on-surface: #0A0A0A;
+  --on-surface-variant: #262626;
+  --text-secondary: #525252;
+  --border-color: rgba(0, 0, 0, 0.12);
+}
+
+.dark {
+  --base: #000000;
+  --surface: #150d01;
+  --surface-low: #1b1202;
+  --surface-high: #291e07;
+  --surface-highest: #30240b;
+  --surface-bright: #372a0f;
+  
+  --on-surface: #fdf4e3;
+  --on-surface-variant: #e7d5b8;
+  --text-secondary: #a89276;
+  --border-color: rgba(255, 255, 255, 0.15);
+}
+
+@layer base {
+  html, body {
+    @apply m-0 p-0 w-full overflow-x-hidden transition-colors duration-300;
+  }
+  body {
+    @apply bg-base text-on-surface font-body selection:bg-primary selection:text-black;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .glow-subtle {
+    box-shadow: 0 0 40px rgba(249, 115, 22, 0.04);
+  }
+  .glow-medium {
+    box-shadow: 0 0 40px rgba(249, 115, 22, 0.15);
+  }
+  .glow-strong {
+    box-shadow: 0 0 60px rgba(249, 115, 22, 0.3);
+  }
+  .text-glow {
+    text-shadow: 0 0 15px rgba(249, 115, 22, 0.4);
+  }
+  .ghost-border {
+    border: 1px solid var(--border-color);
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
