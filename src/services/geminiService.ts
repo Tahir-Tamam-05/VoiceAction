@@ -1,60 +1,144 @@
-import { GoogleGenAI } from "@google/genai";
+// ─── Gemini Service ──────────────────────────────────────────
+// Refined AI pipeline: Voice transcript → AI Analysis → Structured Note
 
-const API_KEY = process.env.GEMINI_API_KEY || "";
+const API_KEY: string = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
 
-// Lazy initialization to prevent crash if API key is missing at load time
-let aiInstance: GoogleGenAI | null = null;
+if (!API_KEY) {
+  console.warn(
+    "[VoiceAction] VITE_GEMINI_API_KEY is not set.\n" +
+    "Please create a .env file and add: VITE_GEMINI_API_KEY=your_key_here"
+  );
+}
 
-const getAI = () => {
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${API_KEY}`;
+
+export interface GeminiStructuredResponse {
+  title: string;
+  type: 'task' | 'event' | 'idea' | 'voice' | 'audio' | 'text';
+  summary: string;
+  tags: string[];
+  content?: string;
+  body?: string;
+  mood?: string;
+}
+
+/**
+ * Processes voice transcript using Gemini API with a structured prompt.
+ */
+export async function processVoiceNote(text: string): Promise<GeminiStructuredResponse | null> {
   if (!API_KEY) {
-    console.warn("GEMINI_API_KEY is missing. AI features will be disabled.");
+    console.error("Gemini API key is missing.");
     return null;
   }
-  if (!aiInstance) {
-    aiInstance = new GoogleGenAI({ apiKey: API_KEY });
-  }
-  return aiInstance;
-};
 
-export const processVoiceNote = async (transcript: string) => {
-  const ai = getAI();
-  if (!ai) return null;
+  const structuredPrompt = `Convert the following voice input into a structured note.
+  
+Return EXACTLY a JSON format:
+{
+  "title": "A concise and catchy title",
+  "type": "TASK | EVENT | IDEA",
+  "summary": "A short 1-sentence summary of the content",
+  "tags": ["tag1", "tag2"]
+}
+
+Text: "${text}"`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: `Analyze this voice transcript and provide a structured note. 
-      Return a JSON object with:
-      - title: A concise title
-      - content: A short summary (max 100 chars)
-      - body: The full cleaned up text
-      - type: One of ['voice', 'text', 'task', 'idea']
-      - mood: A single word describing the mood
-      
-      Transcript: "${transcript}"`,
-      config: {
-        responseMimeType: "application/json",
-      }
+    const response = await fetch(GEMINI_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: structuredPrompt }]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      })
     });
 
-    const text = response.text || "{}";
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const rawContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!rawContent) return null;
+
+    // Parse logic with fallback
     try {
-      return JSON.parse(text);
-    } catch (parseError) {
-      console.error("AI Response Parse Error:", parseError, "Raw Text:", text);
-      // Attempt to extract JSON if AI wrapped it in markdown blocks
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          return JSON.parse(jsonMatch[0]);
-        } catch (innerError) {
-          return null;
-        }
-      }
+      // Clean up markdown code blocks if AI included them
+      const cleaned = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
+      return JSON.parse(cleaned) as GeminiStructuredResponse;
+    } catch (parseErr) {
+      console.error("Failed to parse Gemini JSON:", parseErr, rawContent);
       return null;
     }
   } catch (error) {
-    console.error("AI Processing Error:", error);
+    console.error("Gemini API call failed:", error);
     return null;
   }
-};
+}
+
+/**
+ * Generates a cover image for a note using Gemini API.
+ */
+export async function generateNoteCover(title: string, type: string): Promise<string | null> {
+  if (!API_KEY) return null;
+
+  try {
+    const response = await fetch(GEMINI_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: `Generate a cover image URL for a note titled "${title}" of type "${type}". Return only the URL.` }]
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (error) {
+    console.error("Cover generation failed:", error);
+    return null;
+  }
+}
+
+/**
+ * Translates text using Gemini API.
+ */
+export async function translateNote(text: string, targetLang: string): Promise<string | null> {
+  if (!API_KEY) return null;
+
+  try {
+    const response = await fetch(GEMINI_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: `Translate this text to ${targetLang}. Return only the translated text: "${text}"` }]
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch (error) {
+    console.error("Translation failed:", error);
+    return null;
+  }
+}

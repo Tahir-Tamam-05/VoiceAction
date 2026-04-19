@@ -58,6 +58,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const [voice, setVoice] = useState('Nova (Natural)');
   const [model, setModel] = useState('Gemini 1.5 Pro');
+  const [quickLaunch, setQuickLaunch] = useState(false);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -65,11 +66,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     const savedPrivacy = localStorage.getItem('settings_privacy');
     const savedVoice = localStorage.getItem('settings_voice');
     const savedModel = localStorage.getItem('settings_model');
+    const savedQuickLaunch = localStorage.getItem('va_setting_quicklaunch');
 
     if (savedNotifications) setNotifications(JSON.parse(savedNotifications));
     if (savedPrivacy) setPrivacy(JSON.parse(savedPrivacy));
     if (savedVoice) setVoice(savedVoice);
     if (savedModel) setModel(savedModel);
+    if (savedQuickLaunch) setQuickLaunch(savedQuickLaunch === 'true');
   }, []);
 
   // Save settings to localStorage
@@ -89,12 +92,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     localStorage.setItem('settings_model', model);
   }, [model]);
 
+  useEffect(() => {
+    localStorage.setItem('va_setting_quicklaunch', quickLaunch.toString());
+  }, [quickLaunch]);
+
   const toggleExpanded = (item: string) => {
     setExpandedItem(expandedItem === item ? null : item);
   };
 
   return (
-    <div className="min-h-screen w-full pb-32 pt-24 px-4 sm:px-6 max-w-5xl mx-auto">
+    <div className="min-h-screen w-full pb-safe-nav pt-24 px-4 sm:px-6 max-w-5xl mx-auto">
       <TopBar 
         title="Settings" 
         onBack={() => setScreen('home')} 
@@ -293,6 +300,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </SettingsGroup>
 
         <SettingsGroup title="03 / SYSTEM" desc="Configure interface behaviors and cryptographic privacy standards.">
+          <SettingsItem 
+            icon={Smartphone} 
+            label="Quick Launch Mode" 
+            isExpanded={expandedItem === 'quicklaunch'}
+            onClick={() => toggleExpanded('quicklaunch')}
+          >
+            <div className="pt-4">
+               <ToggleItem 
+                  label="Auto-Launch to Recording" 
+                  desc="When enabled, the app opens directly to the Recording screen instead of Home."
+                  active={quickLaunch}
+                  onToggle={() => setQuickLaunch(!quickLaunch)}
+                />
+            </div>
+          </SettingsItem>
+
           <SettingsItem 
             icon={isDark ? Sun : Moon} 
             label="Appearance" 

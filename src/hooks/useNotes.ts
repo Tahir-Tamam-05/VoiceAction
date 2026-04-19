@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Note, MOCK_NOTES } from '../types';
+import { Note } from '../types';
 import { sanitize } from '../utils/sanitization';
 
 const sanitizeNote = (note: Note): Note => ({
@@ -25,9 +25,8 @@ export function useNotes(userId: string | undefined) {
         setNotes([]);
       }
     } else {
-      const sanitizedMock = MOCK_NOTES.map(sanitizeNote);
-      setNotes(sanitizedMock);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizedMock));
+      // Start with empty notes — no dummy data
+      setNotes([]);
     }
   }, [STORAGE_KEY]);
 

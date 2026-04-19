@@ -11,9 +11,11 @@ import { HomeScreen } from './Home';
 import { SearchScreen } from './Search';
 import { HistoryScreen } from './History';
 import { SettingsScreen } from './Settings';
-import { RecordingScreen } from './Recording';
 import { EditNoteScreen } from './EditNote';
-import { LandingScreen, SignInScreen } from './Auth';
+import { FlashcardsScreen } from './Flashcards';
+import { LandingRecordScreen } from './LandingRecord';
+import { RecordingScreen } from './Recording';
+import { SignInScreen } from './Auth';
 import { useAuth } from './hooks/useAuth';
 import { useNotes } from './hooks/useNotes';
 import { useDarkMode } from './hooks/useDarkMode';
@@ -27,11 +29,32 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && (currentScreen === 'landing' || currentScreen === 'signin')) {
-      setCurrentScreen('home');
+      const quickLaunch = localStorage.getItem('va_setting_quicklaunch') === 'true';
+      setCurrentScreen(quickLaunch ? 'recording' : 'home');
     } else if (!isLoading && !isAuthenticated && !['landing', 'signin'].includes(currentScreen)) {
       setCurrentScreen('landing');
     }
   }, [isLoading, isAuthenticated, currentScreen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input or textarea
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      const isRecordShortcut = (e.code === 'Space') || (isCmdOrCtrl && e.shiftKey && e.code === 'KeyV');
+      
+      if (isRecordShortcut && isAuthenticated && !isLoading) {
+        e.preventDefault();
+        setCurrentScreen('recording');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAuthenticated, isLoading]);
 
   const handleEditNote = (note: Note) => {
     setEditingNote(note);
@@ -42,15 +65,16 @@ export default function App() {
     if (isLoading) return <div className="min-h-screen bg-base flex items-center justify-center"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 
     switch (currentScreen) {
-      case 'landing': return <LandingScreen setScreen={setCurrentScreen} />;
+      case 'landing': return <LandingRecordScreen setScreen={setCurrentScreen} onSaveNote={addNote} isDark={isDark} />;
       case 'signin': return <SignInScreen setScreen={setCurrentScreen} />;
       case 'home': return <HomeScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} user={user} onDeleteNote={deleteNote} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
       case 'search': return <SearchScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} onDeleteNote={deleteNote} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
       case 'history': return <HistoryScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} onDeleteNote={deleteNote} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
       case 'settings': return <SettingsScreen setScreen={setCurrentScreen} logout={logout} user={user} toggleDarkMode={toggleDarkMode} isDark={isDark} notes={notes} />;
       case 'recording': return <RecordingScreen setScreen={setCurrentScreen} onSaveNote={addNote} isDark={isDark} />;
-      case 'edit': return editingNote ? <EditNoteScreen setScreen={setCurrentScreen} note={editingNote} onUpdateNote={updateNote} onDeleteNote={deleteNote} isDark={isDark} /> : <HomeScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} user={user} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
-      default: return <HomeScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} user={user} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
+      case 'flashcards': return <FlashcardsScreen setScreen={setCurrentScreen} notes={notes} isDark={isDark} />;
+      case 'edit': return editingNote ? <EditNoteScreen setScreen={setCurrentScreen} note={editingNote} notes={notes} onUpdateNote={updateNote} onDeleteNote={deleteNote} isDark={isDark} /> : <HomeScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} user={user} onDeleteNote={deleteNote} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
+      default: return <HomeScreen setScreen={setCurrentScreen} notes={notes} onEditNote={handleEditNote} user={user} onDeleteNote={deleteNote} isDark={isDark} onToggleDarkMode={toggleDarkMode} />;
     }
   };
 

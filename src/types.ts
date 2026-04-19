@@ -25,7 +25,7 @@ import {
   Clock
 } from 'lucide-react';
 
-export type Screen = 'landing' | 'home' | 'search' | 'history' | 'settings' | 'recording' | 'edit';
+export type Screen = 'landing' | 'signin' | 'home' | 'search' | 'history' | 'settings' | 'recording' | 'edit' | 'flashcards';
 
 export type NoteAttachment = {
   id: string;
@@ -46,9 +46,24 @@ export interface Note {
   createdAt: number;
   pinned?: boolean;
   tags?: string[];
-  body?: string;                    // NEW: rich free-text note body
-  attachments?: NoteAttachment[];   // NEW: links + extra text blocks
+  body?: string;
+  attachments?: NoteAttachment[];
   mood?: string;
+  linkedNoteIds?: string[];
+  coverImage?: string;
+  translation?: {
+    lang: string;
+    langLabel: string;
+    text: string;
+    updatedAt: number;
+  };
+  flashcardEnabled?: boolean;
+  flashcardReview?: {
+    nextReviewAt: number;
+    interval: number;
+    easeFactor: number;
+    totalReviews: number;
+  };
 }
 
 export type AuthUser = {

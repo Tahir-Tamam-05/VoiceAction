@@ -51,7 +51,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ setScreen, notes, onEdit
   };
 
   return (
-    <div className="min-h-screen w-full pb-32 pt-24 px-4 sm:px-6 max-w-2xl mx-auto">
+    <div className="min-h-screen w-full pb-safe-nav pt-24 px-4 sm:px-6 max-w-2xl mx-auto overflow-y-auto">
       <TopBar 
         title="VoiceAction" 
         user={user} 
@@ -64,23 +64,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ setScreen, notes, onEdit
       
       {/* Info Banners */}
       <div className="flex gap-3 mb-8 overflow-x-auto pb-2 no-scrollbar w-full">
-        <div className="flex-shrink-0 bg-primary/10 border border-primary/20 rounded-2xl px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary">
-            <Sparkles size={16} />
+        <div className="flex-shrink-0 min-w-[140px] max-w-[200px] bg-primary/10 border border-primary/20 rounded-2xl px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary flex-shrink-0">
+            <Sparkles size={14} className="sm:w-4 sm:h-4" />
           </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest font-bold text-primary/60">AI Status</p>
-            <p className="text-sm font-bold text-on-surface">Ready to process</p>
+          <div className="min-w-0">
+            <p className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-primary/60 truncate">AI Status</p>
+            <p className="text-xs sm:text-sm font-bold text-on-surface truncate">Ready to process</p>
           </div>
         </div>
         
-        <div className="flex-shrink-0 bg-surface-low border border-primary/5 rounded-2xl px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-surface-highest flex items-center justify-center text-text-secondary">
-            <Clock size={16} />
+        <div className="flex-shrink-0 min-w-[140px] max-w-[200px] bg-surface-low border border-primary/5 rounded-2xl px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-surface-highest flex items-center justify-center text-text-secondary flex-shrink-0">
+            <Clock size={14} className="sm:w-4 sm:h-4" />
           </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest font-bold text-text-secondary/60">Streak</p>
-            <p className="text-sm font-bold text-on-surface">{streak} Days</p>
+          <div className="min-w-0">
+            <p className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-text-secondary/60 truncate">Streak</p>
+            <p className="text-xs sm:text-sm font-bold text-on-surface truncate">{streak} Days</p>
           </div>
         </div>
       </div>
@@ -104,33 +104,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ setScreen, notes, onEdit
           value={quickNoteText}
           onChange={(e) => setQuickNoteText(e.target.value)}
           disabled={isProcessing}
-          className="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-text-secondary/40 resize-none h-24 font-medium"
+          className="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-text-secondary/40 resize-none h-20 sm:h-24 font-medium text-sm sm:text-base"
         />
         
-        <div className="flex items-center justify-between mt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full bg-primary ${isProcessing ? 'animate-pulse' : ''}`} />
-            <span className="text-[10px] uppercase tracking-widest font-bold text-primary/60">
+            <span className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold text-primary/60">
               {isProcessing ? 'AI Processing' : 'AI Ready'}
             </span>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex gap-2 sm:gap-3 flex-wrap">
             {quickNoteText.trim() && (
               <button 
                 onClick={handleQuickSave}
                 disabled={isProcessing}
-                className="flex items-center gap-2 bg-primary text-black rounded-full px-4 py-2 transition-all font-bold text-xs uppercase tracking-wider disabled:opacity-50"
+                className="flex items-center gap-2 bg-primary text-black rounded-full px-3 sm:px-4 py-2 transition-all font-bold text-[10px] sm:text-xs uppercase tracking-wider disabled:opacity-50"
               >
                 {isProcessing ? '...' : 'Save'}
               </button>
             )}
             <button 
               onClick={() => setScreen('recording')}
-              className="flex items-center gap-2 bg-surface-low hover:bg-surface-high border border-primary/10 rounded-full px-4 py-2 transition-all"
+              className="flex items-center gap-2 bg-surface-low hover:bg-surface-high border border-primary/10 rounded-full px-3 sm:px-4 py-2 transition-all"
             >
-              <Mic size={16} className="text-primary" />
-              <span className="text-xs font-bold text-on-surface uppercase tracking-wider">Voice Mode</span>
+              <Mic size={14} className="text-primary sm:w-4 sm:h-4" />
+              <span className="text-[10px] sm:text-xs font-bold text-on-surface uppercase tracking-wider">Voice Mode</span>
             </button>
           </div>
         </div>

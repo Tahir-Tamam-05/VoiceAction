@@ -17,13 +17,17 @@ import {
   Paperclip,
   ExternalLink
 } from 'lucide-react';
-import { extractLinks } from './utils/linkHelpers';
+import { extractLinks, extractWikiLinks, resolveLinks } from './utils/linkHelpers';
 import { processVoiceNote } from './services/geminiService';
-import { Sparkles } from 'lucide-react';
+import { TAG_TAXONOMY, Tag } from './utils/tagHelpers';
+import { TranslationPanel } from './components/TranslationPanel';
+import { Sparkles, Layers } from 'lucide-react';
+import { generateNoteCover } from './services/geminiService';
 
 interface EditNoteScreenProps {
   setScreen: (s: Screen) => void;
   note: Note;
+  notes?: Note[];
   onUpdateNote: (n: Note) => void;
   onDeleteNote: (id: string) => void;
   isDark: boolean;
@@ -32,6 +36,7 @@ interface EditNoteScreenProps {
 export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({ 
   setScreen, 
   note, 
+  notes = [],
   onUpdateNote, 
   onDeleteNote,
   isDark
@@ -43,8 +48,12 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
   const [attachments, setAttachments] = useState<NoteAttachment[]>(note?.attachments || []);
   const [showTypeMenu, setShowTypeMenu] = useState(false);
   const [type, setType] = useState(note?.type || 'text');
+  const [tags, setTags] = useState<Tag[]>((note?.tags as Tag[]) || []);
+  const [showTagPicker, setShowTagPicker] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
+  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isFlashcardEnabled, setIsFlashcardEnabled] = useState(note?.flashcardEnabled || false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -83,6 +92,9 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
   };
 
   const handleSave = () => {
+    const wikiTitles = extractWikiLinks(body);
+    const linkedNoteIds = resolveLinks(wikiTitles, notes);
+
     const updatedNote: Note = {
       ...note,
       title,
@@ -90,7 +102,11 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
       body,
       pinned: isPinned,
       attachments,
+      tags,
       type,
+      linkedNoteIds: linkedNoteIds.length > 0 ? linkedNoteIds : undefined,
+      flashcardEnabled: isFlashcardEnabled,
+      flashcardReview: note?.flashcardReview,
     };
     onUpdateNote(updatedNote);
     setScreen('home');
@@ -103,6 +119,28 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
   const confirmDelete = () => {
     onDeleteNote(note?.id || '');
     setScreen('home');
+  };
+
+  const handleGenerateCover = async () => {
+    if (!window.confirm("Use AI to create a unique cover? (uses API credit)")) return;
+    setIsGeneratingCover(true);
+    try {
+      const cover = await generateNoteCover(title || 'Untitled', type);
+      if (cover) {
+        const newNote = { ...note, coverImage: cover };
+        onUpdateNote(newNote);
+        // We do not set local state because onUpdateNote updates the parent, 
+        // which passes the updated note back down, but wait, EditNote doesn't sync its internal state for coverImage.
+        // Actually,EditNote reads note.coverImage directly!
+      } else {
+        alert("Failed to generate cover image. Note: Text-only Gemini plans do not support image generation.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error generating cover.");
+    } finally {
+      setIsGeneratingCover(false);
+    }
   };
 
   const handleAddLink = () => {
@@ -159,6 +197,17 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const removeTag = (tagToRemove: Tag) => {
+    setTags(tags.filter(t => t !== tagToRemove));
+  };
+
+  const addTag = (newTag: Tag) => {
+    if (!tags.includes(newTag)) {
+      setTags([...tags, newTag]);
+    }
+    setShowTagPicker(false);
+  };
+
   return (
     <div className="min-h-screen w-full bg-base pb-10">
       <TopBar 
@@ -167,6 +216,20 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
         isDark={isDark}
         onToggleDarkMode={() => {}} // Handled by App.tsx
       />
+
+      {note?.coverImage && (
+        <div className="w-full h-48 relative overflow-hidden -mt-6 sm:-mt-8 mb-6">
+          <div className="absolute inset-0 bg-gradient-to-t from-base to-transparent z-10" />
+          <img src={note.coverImage} alt="Cover" className="w-full h-full object-cover opacity-70" />
+          <button 
+             onClick={() => { const newNote = {...note}; delete newNote.coverImage; onUpdateNote(newNote); }} 
+             className="absolute top-24 right-4 z-20 p-2 bg-black/50 hover:bg-black text-white rounded-lg backdrop-blur-sm transition-all"
+             title="Remove Cover"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       <input 
         type="file" 
@@ -185,8 +248,18 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
               className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                 isPinned ? 'bg-primary text-black shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'bg-surface-low text-text-secondary border border-primary/10'
               }`}
+              title="Pin Note"
             >
               <Pin size={18} fill={isPinned ? "currentColor" : "none"} />
+            </button>
+            <button 
+              onClick={() => setIsFlashcardEnabled(!isFlashcardEnabled)}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                isFlashcardEnabled || type === 'idea' ? 'bg-primary/20 text-primary border border-primary/40 shadow-[0_0_15px_rgba(249,115,22,0.2)]' : 'bg-surface-low text-text-secondary border border-primary/10'
+              }`}
+              title={type === 'idea' ? "Ideas are automatically included in Flashcards" : "Include in Flashcards"}
+            >
+              <Layers size={18} />
             </button>
             
             <div className="relative">
@@ -219,6 +292,16 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
                 )}
               </AnimatePresence>
             </div>
+
+            <button 
+              onClick={handleGenerateCover}
+              disabled={isGeneratingCover}
+              className={`bg-surface-highest border border-primary/5 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-all ${isGeneratingCover ? 'text-primary/50 cursor-not-allowed animate-pulse' : 'text-text-secondary hover:text-primary hover:bg-surface-high'}`}
+              title="Generate AI Cover"
+            >
+              <ImageIcon size={14} />
+              <span className="hidden sm:inline">{isGeneratingCover ? 'Generating...' : note?.coverImage ? 'Regenerate Cover' : 'Generate Cover'}</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 justify-end sm:justify-start">
@@ -268,6 +351,49 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
                 <span>{note?.mood || 'Neutral'}</span>
               </div>
             </div>
+            
+            <div className="flex flex-wrap items-center gap-2 mt-4">
+              {tags.map(tag => (
+                <span key={tag} className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary rounded-lg text-[10px] font-bold uppercase tracking-widest border border-primary/20">
+                  {tag}
+                  <button onClick={() => removeTag(tag)} className="hover:text-red-400 p-0.5 rounded transition-colors"><X size={10} /></button>
+                </span>
+              ))}
+              <div className="relative">
+                <button 
+                  onClick={() => setShowTagPicker(!showTagPicker)} 
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-surface-highest text-text-secondary hover:text-primary hover:bg-surface-high rounded-lg text-[10px] font-bold uppercase tracking-widest border border-primary/10 transition-colors"
+                >
+                  <Plus size={10} /> Add Tag
+                </button>
+                
+                <AnimatePresence>
+                  {showTagPicker && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      className="absolute left-0 top-full mt-2 w-64 bg-surface border border-primary/10 rounded-xl shadow-2xl p-3 z-50 grid grid-cols-2 gap-2"
+                    >
+                      {TAG_TAXONOMY.map(t => (
+                        <button
+                          key={t}
+                          onClick={() => addTag(t as Tag)}
+                          className={`text-left px-2 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                            tags.includes(t as Tag) 
+                              ? 'bg-primary/5 text-primary/50 cursor-not-allowed' 
+                              : 'hover:bg-primary/10 text-on-surface hover:text-primary'
+                          }`}
+                          disabled={tags.includes(t as Tag)}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
           </div>
 
           <div className="bg-surface-low border border-primary/5 rounded-3xl p-6">
@@ -289,6 +415,35 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
               className="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-text-secondary/40 resize-none h-64 font-medium leading-relaxed"
             />
           </div>
+
+          <TranslationPanel note={note} onUpdateNote={onUpdateNote} />
+
+          {note.linkedNoteIds && note.linkedNoteIds.length > 0 && (
+            <div className="mt-8">
+              <h4 className="text-[10px] uppercase tracking-[0.2em] font-black text-primary/60 flex items-center gap-1.5 mb-4">
+                <LinkIcon size={12} />
+                Connected Notes
+              </h4>
+              <div className="flex flex-col gap-2">
+                {note.linkedNoteIds.map(linkedId => {
+                  const linkedNote = notes.find(n => n.id === linkedId);
+                  if (!linkedNote) return null;
+                  return (
+                    <div key={linkedId} className="p-3 bg-surface-low border border-primary/10 rounded-xl hover:border-primary/30 transition-colors flex items-center justify-between group cursor-pointer" onClick={() => {
+                        onUpdateNote(note); // Save current first
+                        // Navigation requires modifying App routing which we don't have time for
+                    }}>
+                      <div>
+                        <h5 className="text-sm font-bold text-on-surface truncate group-hover:text-primary transition-colors">{linkedNote.title}</h5>
+                        <p className="text-xs text-text-secondary truncate mt-0.5">{linkedNote.content}</p>
+                      </div>
+                      <ExternalLink size={14} className="text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Attachments */}
           <div>

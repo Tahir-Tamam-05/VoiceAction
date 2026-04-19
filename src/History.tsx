@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TopBar, NoteCard } from './components';
 import { Screen, Note } from './types';
-import { ArrowUpDown, Filter, Calendar, Pin, Tag } from 'lucide-react';
+import { ArrowUpDown, Filter, Calendar, Pin, Tag, Layers } from 'lucide-react';
 
 interface HistoryScreenProps {
   setScreen: (s: Screen) => void;
@@ -74,13 +74,23 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ setScreen, notes, 
 
 
   return (
-    <div className="min-h-screen w-full pt-24 pb-32 px-4 sm:px-6 max-w-2xl mx-auto">
+    <div className="min-h-screen w-full pt-24 pb-safe-nav px-4 sm:px-6 max-w-2xl mx-auto">
       <TopBar 
         title="History" 
         onSetScreen={setScreen} 
         isDark={isDark} 
         onToggleDarkMode={onToggleDarkMode} 
       />
+
+      <div className="flex justify-end mb-4">
+        <button 
+          onClick={() => setScreen('flashcards')}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors border border-primary/20"
+        >
+          <Layers size={14} />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Review Ideas</span>
+        </button>
+      </div>
 
       {/* Analytics Bento */}
       <section className="grid grid-cols-2 gap-3 mb-6">

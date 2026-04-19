@@ -64,7 +64,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ setScreen, notes, on
 
 
   return (
-    <div className="min-h-screen w-full pt-24 pb-32 px-4 sm:px-6 max-w-2xl mx-auto">
+    <div className="min-h-screen w-full pt-24 pb-safe-nav px-4 sm:px-6 max-w-2xl mx-auto">
       <TopBar 
         title="Search" 
         onSetScreen={setScreen} 
