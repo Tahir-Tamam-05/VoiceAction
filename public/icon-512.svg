@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#000000"/>
+  <rect width="512" height="512" rx="110" fill="url(#g)"/>
+  <defs>
+    <radialGradient id="g" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Microphone body -->
+  <rect x="218" y="108" width="76" height="140" rx="38" fill="#f97316"/>
+  <!-- Microphone arc -->
+  <path d="M168 248 C168 310 344 310 344 248" stroke="#f97316" stroke-width="16" fill="none" stroke-linecap="round"/>
+  <!-- Stand -->
+  <line x1="256" y1="326" x2="256" y2="376" stroke="#f97316" stroke-width="16" stroke-linecap="round"/>
+  <line x1="196" y1="376" x2="316" y2="376" stroke="#f97316" stroke-width="16" stroke-linecap="round"/>
+</svg>

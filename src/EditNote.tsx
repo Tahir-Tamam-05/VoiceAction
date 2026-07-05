@@ -1,28 +1,30 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Screen, Note, NoteAttachment } from './types';
+import { Screen, Note, NoteAttachment, Crystal } from './types';
 import { TopBar } from './components';
-import { 
-  X, 
-  Save, 
-  Trash2, 
-  Plus, 
-  Link as LinkIcon, 
-  FileText, 
-  Pin, 
-  Smile, 
+import {
+  X,
+  Save,
+  Trash2,
+  Plus,
+  Link as LinkIcon,
+  FileText,
+  Pin,
+  Smile,
   Calendar,
   ChevronDown,
-  Image as ImageIcon,
   Paperclip,
-  ExternalLink
+  ExternalLink,
 } from 'lucide-react';
 import { extractLinks, extractWikiLinks, resolveLinks } from './utils/linkHelpers';
-import { processVoiceNote } from './services/geminiService';
-import { TAG_TAXONOMY, Tag } from './utils/tagHelpers';
-import { TranslationPanel } from './components/TranslationPanel';
-import { Sparkles, Layers } from 'lucide-react';
-import { generateNoteCover } from './services/geminiService';
+import {
+  processNoteWithTimeout, transformConcise, transformExtractActions, transformBullets,
+} from './features/intelligence/IntelligenceEngine';
+import { enrichCrystalConnections } from './features/intelligence/graph/connectionEngine';
+import { notifications } from './features/notifications/notificationService';
+import { TAG_TAXONOMY, Tag, extractTagsFromText } from './utils/tagHelpers';
+import { Sparkles, Layers, Scissors, CheckSquare, List, Wand2, Share2, Download, Copy } from 'lucide-react';
+import { generateShareImage, useExport } from './features/export/exportService';
 
 interface EditNoteScreenProps {
   setScreen: (s: Screen) => void;
@@ -31,6 +33,7 @@ interface EditNoteScreenProps {
   onUpdateNote: (n: Note) => void;
   onDeleteNote: (id: string) => void;
   isDark: boolean;
+  onEditNote?: (n: Note) => void;
 }
 
 export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({ 
@@ -39,7 +42,8 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
   notes = [],
   onUpdateNote, 
   onDeleteNote,
-  isDark
+  isDark,
+  onEditNote
 }) => {
   const [title, setTitle] = useState(note?.title || '');
   const [content, setContent] = useState(note?.content || '');
@@ -51,66 +55,132 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
   const [tags, setTags] = useState<Tag[]>((note?.tags as Tag[]) || []);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
-  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isFlashcardEnabled, setIsFlashcardEnabled] = useState(note?.flashcardEnabled || false);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { exportToPDF, copyToClipboard, shareContent } = useExport();
 
   const handleRefine = async () => {
     if (!body.trim()) return;
     setIsRefining(true);
-    
+
     // Store original values for potential rollback
     const originalTitle = title;
     const originalContent = content;
     const originalBody = body;
     const originalType = type;
+    const originalTags = tags;
 
     try {
-      const aiResult = await processVoiceNote(body);
-      if (aiResult) {
-        setTitle(aiResult.title || title);
-        setContent(aiResult.content || content);
-        setBody(aiResult.body || body);
-        setType(aiResult.type || type);
-      } else {
-        // AI returned null, maybe API key is missing or malformed response
-        alert("AI refinement failed. Please check your connection or API key.");
+      // Local intelligence — deterministic, always succeeds for non-empty text
+      const aiResult = await processNoteWithTimeout(body);
+      if (aiResult.success && aiResult.data) {
+        const aiData = aiResult.data;
+        setTitle(aiData.title || title);
+        setContent(aiData.summary || content);
+        setBody(body); // keep original body
+        setType(aiData.type || type);
+        setTags(aiResult.tags.length > 0 ? (aiResult.tags as Tag[]) : extractTagsFromText(body));
       }
     } catch (error) {
       console.error("Refinement failed:", error);
-      // Rollback to original values
+      // Rollback to previous
       setTitle(originalTitle);
       setContent(originalContent);
       setBody(originalBody);
       setType(originalType);
-      alert("An error occurred during refinement. Your original note has been preserved.");
+      setTags(originalTags);
+      notifications.error("An error occurred during refinement. Your original note has been preserved.");
     } finally {
       setIsRefining(false);
     }
   };
 
-  const handleSave = () => {
-    const wikiTitles = extractWikiLinks(body);
-    const linkedNoteIds = resolveLinks(wikiTitles, notes);
 
-    const updatedNote: Note = {
+  // Phase 1+ AI Suggestions
+  const [isProcessingSuggestion, setIsProcessingSuggestion] = useState(false);
+
+  const runLocalSuggestion = (
+    transform: (body: string) => { content?: string; body?: string } | null,
+    emptyMessage: string
+  ) => {
+    if (!body.trim()) return;
+    setIsProcessingSuggestion(true);
+    try {
+      const result = transform(body);
+      if (result) {
+        if (result.content) setContent(result.content);
+        if (result.body) setBody(result.body);
+      } else {
+        notifications.info(emptyMessage);
+      }
+    } finally {
+      setIsProcessingSuggestion(false);
+    }
+  };
+
+  const handleMakeConcise = () =>
+    runLocalSuggestion(transformConcise, 'Nothing to condense — the note is already short.');
+
+  const handleExtractActions = () =>
+    runLocalSuggestion(transformExtractActions, 'No action items detected in this note.');
+
+  const handleConvertToBullets = () =>
+    runLocalSuggestion(transformBullets, 'Nothing to convert to bullets.');
+
+  const handleSave = async () => {
+    // Ensure tags are set: fallback robustly if not present
+    let currentTags = tags;
+    if (!Array.isArray(tags) || tags.length === 0) {
+      const fallbackTags = extractTagsFromText(body);
+      setTags(fallbackTags);
+      notifications.info('Tags extracted locally.');
+      currentTags = fallbackTags;
+    }
+
+    // Wiki-syntax links (manual)
+    const wikiTitles = extractWikiLinks(body);
+    const otherNotes = notes.filter((n) => n.id !== note.id);
+    const manualLinkedIds = resolveLinks(wikiTitles, otherNotes);
+
+    // Save immediately with current link state so the UI is responsive
+    const baseNote: Note = {
       ...note,
       title,
       content,
       body,
       pinned: isPinned,
       attachments,
-      tags,
+      tags: currentTags,
       type,
-      linkedNoteIds: linkedNoteIds.length > 0 ? linkedNoteIds : undefined,
+      linkedNoteIds: manualLinkedIds.length > 0 ? manualLinkedIds : note.linkedNoteIds,
+      connections: manualLinkedIds.length || note.connections || 0,
       flashcardEnabled: isFlashcardEnabled,
       flashcardReview: note?.flashcardReview,
+      updatedAt: Date.now(),
+      lastSeen: Date.now(),
     };
-    onUpdateNote(updatedNote);
+
+    await onUpdateNote(baseNote);
     setScreen('home');
+
+    // Background: run semantic connection engine and update the note again
+    const targetCrystal = { ...baseNote } as Crystal;
+    enrichCrystalConnections(targetCrystal, otherNotes as Crystal[])
+      .then(async (enriched) => {
+        const newLinkCount = enriched.linkedNoteIds?.length || 0;
+        if (newLinkCount > 0 || enriched.topics?.length) {
+          const enrichedNote: Note = { ...baseNote, ...enriched, updatedAt: Date.now() };
+          await onUpdateNote(enrichedNote);
+          if (newLinkCount > (manualLinkedIds.length)) {
+            notifications.connectionHint(title, newLinkCount - manualLinkedIds.length);
+          }
+        }
+      })
+      .catch((err) => console.warn('[EditNote] Background enrichment failed:', err));
   };
+
 
   const handleDelete = () => {
     setShowDeleteConfirm(true);
@@ -121,34 +191,58 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
     setScreen('home');
   };
 
-  const handleGenerateCover = async () => {
-    if (!window.confirm("Use AI to create a unique cover? (uses API credit)")) return;
-    setIsGeneratingCover(true);
+  // Phase 2: Share image generation
+  const [isGeneratingShareImage, setIsGeneratingShareImage] = useState(false);
+
+  const handleShareImage = async () => {
+    setIsGeneratingShareImage(true);
     try {
-      const cover = await generateNoteCover(title || 'Untitled', type);
-      if (cover) {
-        const newNote = { ...note, coverImage: cover };
-        onUpdateNote(newNote);
-        // We do not set local state because onUpdateNote updates the parent, 
-        // which passes the updated note back down, but wait, EditNote doesn't sync its internal state for coverImage.
-        // Actually,EditNote reads note.coverImage directly!
+      const imageUrl = await generateShareImage({
+        ...note,
+        title,
+        content,
+        body,
+        tags,
+        type,
+      } as Note);
+
+      if (imageUrl) {
+        const link = document.createElement('a');
+        link.href = imageUrl;
+        link.download = `voiceaction-${note.id}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        notifications.exportComplete('Share Image');
       } else {
-        alert("Failed to generate cover image. Note: Text-only Gemini plans do not support image generation.");
+        notifications.error('Failed to generate share image');
       }
-    } catch (e) {
-      console.error(e);
-      alert("Error generating cover.");
+    } catch (error) {
+      console.error('Share image generation failed:', error);
+      notifications.error('Failed to generate share image');
     } finally {
-      setIsGeneratingCover(false);
+      setIsGeneratingShareImage(false);
     }
   };
 
+  const [showLinkInput, setShowLinkInput] = React.useState(false);
+  const [pendingLinkUrl, setPendingLinkUrl] = React.useState('');
+
   const handleAddLink = () => {
-    const url = prompt("Enter URL:");
+    setShowLinkInput(true);
+  };
+
+  const commitLink = () => {
+    const url = pendingLinkUrl.trim();
     if (url) {
-      const newLinks = extractLinks(url);
-      setAttachments([...attachments, ...newLinks]);
+      // Only allow http(s) URLs to prevent javascript: XSS
+      if (/^https?:\/\//i.test(url)) {
+        const newLinks = extractLinks(url);
+        setAttachments([...attachments, ...newLinks]);
+      }
     }
+    setPendingLinkUrl('');
+    setShowLinkInput(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,6 +300,35 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
       setTags([...tags, newTag]);
     }
     setShowTagPicker(false);
+  };
+
+  const handleExportPDF = () => {
+    const success = exportToPDF({
+      ...note,
+      title,
+      content,
+      body,
+      tags,
+      type
+    } as Note);
+    if (success.success) {
+      notifications.success('PDF Export opened');
+    } else {
+      notifications.error('Export failed');
+    }
+  };
+
+  const handleShareText = async () => {
+    const textToShare = `${title}\n\n${content}\n\n${body}`;
+    const shared = await shareContent({ title, text: textToShare });
+    if (!shared) {
+      const copied = await copyToClipboard(textToShare);
+      if (copied) {
+        notifications.success('Copied to clipboard');
+      } else {
+        notifications.error('Failed to copy');
+      }
+    }
   };
 
   return (
@@ -293,14 +416,32 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
               </AnimatePresence>
             </div>
 
-            <button 
-              onClick={handleGenerateCover}
-              disabled={isGeneratingCover}
-              className={`bg-surface-highest border border-primary/5 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-all ${isGeneratingCover ? 'text-primary/50 cursor-not-allowed animate-pulse' : 'text-text-secondary hover:text-primary hover:bg-surface-high'}`}
-              title="Generate AI Cover"
+            <button
+              onClick={handleExportPDF}
+              className="bg-surface-highest border border-primary/5 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-text-secondary hover:text-primary hover:bg-surface-high transition-all"
+              title="Export as PDF"
             >
-              <ImageIcon size={14} />
-              <span className="hidden sm:inline">{isGeneratingCover ? 'Generating...' : note?.coverImage ? 'Regenerate Cover' : 'Generate Cover'}</span>
+              <Download size={14} />
+              <span className="hidden sm:inline">PDF</span>
+            </button>
+
+            <button
+              onClick={handleShareText}
+              className="bg-surface-highest border border-primary/5 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-text-secondary hover:text-primary hover:bg-surface-high transition-all"
+              title="Share Text"
+            >
+              <Copy size={14} />
+              <span className="hidden sm:inline">Share</span>
+            </button>
+
+            <button
+              onClick={handleShareImage}
+              disabled={isGeneratingShareImage}
+              className={`bg-surface-highest border border-primary/5 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-all ${isGeneratingShareImage ? 'text-primary/50 cursor-not-allowed animate-pulse' : 'text-text-secondary hover:text-primary hover:bg-surface-high'}`}
+              title="Generate Shareable Image"
+            >
+              <Share2 size={14} />
+              <span className="hidden sm:inline">{isGeneratingShareImage ? 'Creating...' : 'Share Image'}</span>
             </button>
           </div>
 
@@ -407,16 +548,60 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
           </div>
 
           <div className="bg-surface-low border border-primary/5 rounded-3xl p-6">
-            <h4 className="text-[10px] uppercase tracking-[0.2em] font-black text-primary/60 mb-4">Full Transcript / Body</h4>
-            <textarea 
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-[10px] uppercase tracking-[0.2em] font-black text-primary/60">Full Transcript / Body</h4>
+
+              {/* Phase 1+ AI Suggestions */}
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <button
+                  onClick={handleMakeConcise}
+                  disabled={isProcessingSuggestion}
+                  className="flex items-center gap-1 px-2 py-1 bg-surface-high border border-primary/10 rounded-lg text-[9px] font-bold text-text-secondary hover:text-primary hover:border-primary/30 transition-all disabled:opacity-50"
+                  title="Make Concise"
+                >
+                  <Scissors size={10} />
+                  <span className="hidden sm:inline">Concise</span>
+                </button>
+                <button
+                  onClick={handleExtractActions}
+                  disabled={isProcessingSuggestion}
+                  className="flex items-center gap-1 px-2 py-1 bg-surface-high border border-primary/10 rounded-lg text-[9px] font-bold text-text-secondary hover:text-primary hover:border-primary/30 transition-all disabled:opacity-50"
+                  title="Extract Action Items"
+                >
+                  <CheckSquare size={10} />
+                  <span className="hidden sm:inline">Actions</span>
+                </button>
+                <button
+                  onClick={handleConvertToBullets}
+                  disabled={isProcessingSuggestion}
+                  className="flex items-center gap-1 px-2 py-1 bg-surface-high border border-primary/10 rounded-lg text-[9px] font-bold text-text-secondary hover:text-primary hover:border-primary/30 transition-all disabled:opacity-50"
+                  title="Convert to Bullets"
+                >
+                  <List size={10} />
+                  <span className="hidden sm:inline">Bullets</span>
+                </button>
+              </div>
+            </div>
+
+            <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Detailed notes or transcript..."
-              className="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-text-secondary/40 resize-none h-64 font-medium leading-relaxed"
+              disabled={isProcessingSuggestion}
+              className="w-full bg-transparent border-none outline-none text-on-surface placeholder:text-text-secondary/40 resize-none h-64 font-medium leading-relaxed disabled:opacity-50"
             />
-          </div>
 
-          <TranslationPanel note={note} onUpdateNote={onUpdateNote} />
+            {isProcessingSuggestion && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center justify-center gap-2 mt-4 py-2 text-primary text-xs"
+              >
+                <Wand2 size={14} className="animate-pulse" />
+                <span className="font-bold uppercase tracking-widest">AI Processing...</span>
+              </motion.div>
+            )}
+          </div>
 
           {note.linkedNoteIds && note.linkedNoteIds.length > 0 && (
             <div className="mt-8">
@@ -430,8 +615,20 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
                   if (!linkedNote) return null;
                   return (
                     <div key={linkedId} className="p-3 bg-surface-low border border-primary/10 rounded-xl hover:border-primary/30 transition-colors flex items-center justify-between group cursor-pointer" onClick={() => {
-                        onUpdateNote(note); // Save current first
-                        // Navigation requires modifying App routing which we don't have time for
+                        // Save current state first
+                        const updatedNote: Note = {
+                          ...note,
+                          title,
+                          content,
+                          body,
+                          pinned: isPinned,
+                          attachments,
+                          tags,
+                          type,
+                          updatedAt: Date.now()
+                        };
+                        onUpdateNote(updatedNote);
+                        if (onEditNote) onEditNote(linkedNote);
                     }}>
                       <div>
                         <h5 className="text-sm font-bold text-on-surface truncate group-hover:text-primary transition-colors">{linkedNote.title}</h5>
@@ -467,6 +664,23 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
               </div>
             </div>
 
+            {/* Inline link input — replaces browser prompt() */}
+            {showLinkInput && (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="url"
+                  autoFocus
+                  value={pendingLinkUrl}
+                  onChange={(e) => setPendingLinkUrl(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') commitLink(); if (e.key === 'Escape') { setPendingLinkUrl(''); setShowLinkInput(false); } }}
+                  placeholder="https://example.com"
+                  className="flex-1 bg-surface-low border border-primary/20 rounded-xl px-3 py-2 text-xs text-on-surface outline-none focus:border-primary/50"
+                />
+                <button onClick={commitLink} className="px-3 py-2 bg-primary text-black text-xs font-bold rounded-xl">Add</button>
+                <button onClick={() => { setPendingLinkUrl(''); setShowLinkInput(false); }} className="px-3 py-2 bg-surface-highest text-text-secondary text-xs font-bold rounded-xl">Cancel</button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {attachments.map(att => (
                 <div key={att.id} className="bg-surface-low border border-primary/5 rounded-2xl p-3 flex items-center justify-between group hover:border-primary/20 transition-all">
@@ -493,10 +707,10 @@ export const EditNoteScreen: React.FC<EditNoteScreenProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    {att.type === 'link' && (
-                      <a 
-                        href={att.content} 
-                        target="_blank" 
+                    {att.type === 'link' && /^https?:\/\//i.test(att.content) && (
+                      <a
+                        href={att.content}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="p-2 text-text-secondary/40 hover:text-primary transition-colors"
                       >

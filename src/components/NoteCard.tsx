@@ -31,13 +31,9 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onClick, onDelete }) =
       <motion.div 
         whileTap={{ scale: 0.98 }}
         onClick={onClick}
-        className={`w-full max-w-full my-2 rounded-2xl p-3 sm:p-4 flex flex-col justify-between min-h-[84px] transition-all cursor-pointer group ${
+        className={`w-full max-w-full my-2 rounded-2xl p-3 sm:p-4 flex flex-col justify-between min-h-[84px] transition-all cursor-pointer group glass-card crystal-shimmer ${
           note?.pinned ? 'border-l-[3px] border-l-primary' : ''
         }`}
-        style={{
-          background: 'var(--surface-low)',
-          border: '1px solid var(--border-color)',
-        }}
       >
         {/* Cover image */}
         {note?.coverImage && (
@@ -49,29 +45,27 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onClick, onDelete }) =
 
         <div className="flex justify-between items-center mb-2">
           <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center ${
-            note?.type === 'voice' ? 'bg-primary/10 text-primary' : ''
+            note?.type === 'voice' ? 'bg-primary/10 text-primary' : 'bg-surface-highest text-text-secondary'
           }`}
-            style={note?.type !== 'voice' ? { background: 'var(--surface-highest)', color: 'var(--text-secondary)' } : {}}
           >
             <Icon size={16} className="sm:w-[18px] sm:h-[18px]" />
           </div>
           <div className="flex items-center gap-2">
             {note?.pinned && <Pin size={10} className="text-primary fill-current" />}
-            <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-secondary)', opacity: 0.8 }}>
+            <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-text-secondary/80">
               {note?.timestamp}
             </span>
             
             <button 
               onClick={(e) => { e.stopPropagation(); setShowOptions(!showOptions); }}
-              className="p-1 rounded-lg transition-colors"
-              style={{ color: 'var(--text-secondary)' }}
+              className="p-1 rounded-lg transition-colors text-text-secondary hover:text-on-surface"
             >
               <MoreVertical size={14} />
             </button>
           </div>
         </div>
         
-        <h4 className="font-bold text-[14px] sm:text-[16px] line-clamp-2 mb-1 leading-snug" style={{ color: 'var(--on-surface)' }}>
+        <h4 className="font-bold text-[14px] sm:text-[16px] line-clamp-2 mb-1 leading-snug text-on-surface">
           {note?.title}
         </h4>
         
@@ -81,7 +75,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onClick, onDelete }) =
               {tag}
             </span>
           ))}
-          <span className="text-[12px] sm:text-[13px] line-clamp-1 flex-1 opacity-70" style={{ color: 'var(--on-surface-variant)' }}>
+          <span className="text-[12px] sm:text-[13px] line-clamp-1 flex-1 text-on-surface-variant/70">
             {note?.content}
           </span>
         </div>
@@ -96,13 +90,11 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onClick, onDelete }) =
               initial={{ opacity: 0, scale: 0.95, y: 5 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 5 }}
-              className="absolute right-2 top-10 w-32 rounded-xl shadow-2xl z-50 overflow-hidden"
-              style={{ background: 'var(--surface)', border: '1px solid var(--border-color)' }}
+              className="absolute right-2 top-10 w-32 rounded-xl shadow-2xl z-50 overflow-hidden bg-surface border border-primary/10"
             >
               <button 
                 onClick={(e) => { e.stopPropagation(); onClick(); setShowOptions(false); }}
-                className="w-full flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-colors"
-                style={{ color: 'var(--on-surface)', borderBottom: '1px solid var(--border-color)' }}
+                className="w-full flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-colors text-on-surface border-b border-primary/10"
               >
                 <Pencil size={14} className="text-primary" />
                 <span>Edit</span>
@@ -126,18 +118,16 @@ export const NoteCard: React.FC<NoteCardProps> = ({ note, onClick, onDelete }) =
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="absolute inset-0 z-[60] backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center p-4 text-center"
-            style={{ background: 'color-mix(in srgb, var(--surface) 95%, transparent)', border: '1px solid rgba(239,68,68,0.2)' }}
+            className="absolute inset-0 z-[60] backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center p-4 text-center bg-surface/95 border border-red-500/20"
           >
             <div className="w-8 h-8 bg-red-500/10 rounded-lg flex items-center justify-center text-red-500 mb-2">
               <AlertTriangle size={16} />
             </div>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--on-surface)' }}>Delete this note?</p>
+            <p className="text-[10px] font-black uppercase tracking-widest mb-3 text-on-surface">Delete this note?</p>
             <div className="flex gap-2 w-full">
               <button 
                 onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }}
-                className="flex-1 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest"
-                style={{ background: 'var(--surface-low)', color: 'var(--on-surface)' }}
+                className="flex-1 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest bg-surface-low text-on-surface"
               >
                 Cancel
               </button>

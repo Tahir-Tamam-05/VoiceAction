@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── User document ─────────────────────────────────────────
+    // Each user can read and write only their own profile document.
+    // Stores: streak data, settings, preferences.
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+
+      // ── Crystals (notes) subcollection ──────────────────────
+      // Each user can read and write only their own notes.
+      match /crystals/{crystalId} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid == userId;
+      }
+    }
+
+    // ── Deny everything else ─────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

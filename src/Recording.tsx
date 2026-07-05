@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Screen, Note } from './types';
 import { X, Mic, Square, Sparkles, AlertTriangle } from 'lucide-react';
-import { processVoiceNote } from './services/geminiService';
+import { processNoteWithTimeout } from './features/intelligence/IntelligenceEngine';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 
 interface RecordingScreenProps {
@@ -10,6 +10,13 @@ interface RecordingScreenProps {
   onSaveNote: (n: Note) => void;
   isDark: boolean;
 }
+
+// Pre-computed stable waveform values — avoids Math.random() inside animation props
+// which re-randomize heights on every React render cycle.
+const WAVEFORM_BARS = Array.from({ length: 20 }, (_, i) => ({
+  maxH: 20 + ((i * 37 + 13) % 61),          // 20–80px, deterministic
+  duration: 0.5 + ((i * 17 + 7) % 11) / 20, // 0.5–1.0s, deterministic
+}));
 
 export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onSaveNote, isDark }) => {
   const [timer, setTimer] = useState(0);
@@ -57,6 +64,15 @@ export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onS
     };
   }, [isListening, isProcessing]);
 
+  // Auto-stop processing on silence (native SpeechRecognition end)
+  const wasListeningRef = useRef(false);
+  useEffect(() => {
+    if (wasListeningRef.current && !isListening && transcript.trim() && !isProcessing) {
+      handleStop();
+    }
+    wasListeningRef.current = isListening;
+  }, [isListening, transcript, isProcessing]);
+
   // Auto-save logic if user navigates away
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -101,34 +117,39 @@ export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onS
     }
 
     try {
-      const aiResult = await processVoiceNote(finalText);
+      const aiResult = await processNoteWithTimeout(finalText);
+      const aiData = aiResult.success ? aiResult.data : null;
       
       const newNote: Note = {
         id: crypto.randomUUID(),
-        title: aiResult?.title || `Voice Note ${new Date().toLocaleDateString()}`,
-        content: aiResult?.content || finalText.slice(0, 100) + "...",
-        body: aiResult?.body || finalText,
-        type: aiResult?.type || 'voice',
+        title: aiData?.title || `Voice Note ${new Date().toLocaleDateString()}`,
+        content: aiData?.summary || finalText.slice(0, 100) + '…',
+        body: finalText,
+        type: aiData?.type || 'voice',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         pinned: false,
         createdAt: Date.now(),
-        mood: aiResult?.mood || 'Neutral',
-        attachments: []
+        updatedAt: Date.now(),
+        tags: aiResult.tags || [],
+        mood: aiData?.mood || 'Neutral',
+        attachments: [],
       };
       onSaveNote(newNote);
     } catch (error) {
-      console.error("Failed to process note:", error);
+      console.error("[RecordingScreen] Failed to process note:", error);
       const fallbackNote: Note = {
         id: crypto.randomUUID(),
         title: `Voice Note ${new Date().toLocaleDateString()}`,
-        content: finalText.slice(0, 100) + "...",
+        content: finalText.slice(0, 100) + '…',
         body: finalText,
         type: 'voice',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         pinned: false,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
+        tags: [],
         mood: 'Neutral',
-        attachments: []
+        attachments: [],
       };
       onSaveNote(fallbackNote);
     } finally {
@@ -139,6 +160,7 @@ export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onS
 
   const handleCancel = () => {
     stopListening();
+    setIsProcessing(false);
     setScreen('home');
   };
 
@@ -149,7 +171,8 @@ export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onS
       
       <button 
         onClick={handleCancel}
-        className="absolute top-12 right-6 text-text-secondary/40 hover:text-on-surface transition-colors z-20"
+        className="absolute right-6 text-text-secondary/40 hover:text-on-surface transition-colors z-20"
+        style={{ top: 'max(env(safe-area-inset-top, 0px) + 12px, 48px)' }}
       >
         <X size={32} />
       </button>
@@ -190,17 +213,17 @@ export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onS
 
         {/* Waveform Visualization */}
         <div className="h-32 flex items-center justify-center gap-1.5 mb-12">
-          {[...Array(20)].map((_, i) => (
+          {WAVEFORM_BARS.map((bar, i) => (
             <motion.div
               key={i}
-              animate={{ 
-                height: isListening ? [20, Math.random() * 80 + 20, 20] : 4,
-                opacity: isListening ? 1 : 0.2
+              animate={{
+                height: isListening ? [20, bar.maxH, 20] : 4,
+                opacity: isListening ? 1 : 0.2,
               }}
-              transition={{ 
-                repeat: Infinity, 
-                duration: 0.5 + Math.random() * 0.5,
-                ease: "easeInOut"
+              transition={{
+                repeat: Infinity,
+                duration: bar.duration,
+                ease: 'easeInOut',
               }}
               className="w-1.5 bg-primary rounded-full"
             />

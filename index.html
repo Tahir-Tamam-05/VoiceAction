@@ -3,13 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-    <meta name="description" content="VoiceAction — Speak. Capture. Act. AI-powered voice notes for productivity." />
-    <meta name="theme-color" content="#000000" />
-    <title>VoiceAction</title>
+
+    <!-- Primary meta -->
+    <title>VoiceAction — Speak. Capture. Act.</title>
+    <meta name="description" content="AI-powered voice notes and knowledge management. Capture thoughts, build connections, track streaks." />
+    <meta name="keywords" content="voice notes, AI notes, knowledge management, spaced repetition" />
+    <meta name="author" content="VoiceAction" />
+
+    <!-- PWA -->
+    <meta name="theme-color" content="#f97316" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VoiceAction" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+    <link rel="mask-icon" href="/icon-512.svg" color="#f97316" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="VoiceAction — Speak. Capture. Act." />
+    <meta property="og:description" content="AI-powered voice notes and knowledge management." />
+    <meta property="og:image" content="/icon-512.svg" />
+
+    <!-- Preconnect to external resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://firebaseapp.com" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/icon-192.svg" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

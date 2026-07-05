@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { Screen, Note } from './types';
-import { processVoiceNote } from './services/geminiService';
+import { processNoteWithTimeout } from './features/intelligence/IntelligenceEngine';
 import { useAuth } from './hooks/useAuth';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { Sparkles, X, AlertTriangle } from 'lucide-react';
@@ -364,6 +364,7 @@ export const LandingRecordScreen: React.FC<LandingRecordProps> = ({ setScreen, o
   const {
     transcript,
     liveText,
+    isListening,
     isSupported: isSpeechSupported,
     error: speechError,
     startListening,
@@ -432,22 +433,6 @@ export const LandingRecordScreen: React.FC<LandingRecordProps> = ({ setScreen, o
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-  // ── Click handler
-  const handleActivate = useCallback(async () => {
-    if (phase !== 'idle') return;
-
-    if (!isAuthenticated) {
-      // Unauthenticated → sign in
-      setScreen('signin');
-      return;
-    }
-
-    // Authenticated → animate out, then go to home
-    setPhase('activating');
-    await orbControls.start({ scale: [1, 1.12, 1.06], transition: { duration: 0.55, ease: [0.2, 0, 0, 1] } });
-    setTimeout(() => setScreen('home'), 400);
-  }, [phase, isAuthenticated, orbControls, setScreen]);
-
   // ── Start recording (called from the recording screen flow)
   const handleStartRecording = useCallback(() => {
     if (!isSpeechSupported) {
@@ -460,6 +445,20 @@ export const LandingRecordScreen: React.FC<LandingRecordProps> = ({ setScreen, o
     setPhase('recording');
     startListening();
   }, [isSpeechSupported, setScreen, resetTranscript, startListening]);
+
+  // ── Click handler
+  const handleActivate = useCallback(async () => {
+    if (phase !== 'idle') return;
+
+    if (!isAuthenticated) {
+      // Unauthenticated → sign in
+      setScreen('signin');
+      return;
+    }
+
+    // Authenticated → start recording
+    handleStartRecording();
+  }, [phase, isAuthenticated, handleStartRecording, setScreen]);
 
   // ── Stop recording
   const handleStop = useCallback(async () => {
@@ -474,27 +473,39 @@ export const LandingRecordScreen: React.FC<LandingRecordProps> = ({ setScreen, o
     }
 
     try {
-      const aiResult = await processVoiceNote(finalText);
+      const aiResult = await processNoteWithTimeout(finalText);
+      const aiData = aiResult.success ? aiResult.data : null;
+      const now = Date.now();
       onSaveNote({
         id: crypto.randomUUID(),
-        title: aiResult?.title || `Voice Note ${new Date().toLocaleDateString()}`,
-        content: aiResult?.content || finalText.slice(0, 120),
-        body: aiResult?.body || finalText,
-        type: aiResult?.type || 'voice',
+        title: aiData?.title || `Voice Note ${new Date().toLocaleDateString()}`,
+        content: aiData?.summary || finalText.slice(0, 120),
+        body: finalText,
+        type: aiData?.type || 'voice',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        pinned: false, createdAt: Date.now(),
-        mood: aiResult?.mood || 'Neutral',
-        tags: aiResult?.tags || [], attachments: [],
+        pinned: false, createdAt: now, updatedAt: now,
+        mood: aiData?.mood || 'Neutral',
+        tags: aiResult.tags || [], attachments: [],
       });
     } catch {
+      const now = Date.now();
       onSaveNote({
         id: crypto.randomUUID(), title: `Voice Note ${new Date().toLocaleDateString()}`,
         content: finalText.slice(0, 120), body: finalText, type: 'voice',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        pinned: false, createdAt: Date.now(), mood: 'Neutral', tags: [], attachments: [],
+        pinned: false, createdAt: now, updatedAt: now, mood: 'Neutral', tags: [], attachments: [],
       });
     } finally { setScreen('home'); }
   }, [phase, transcript, stopListening, onSaveNote, setScreen]);
+
+  // ── Auto-stop processing on silence (native SpeechRecognition end)
+  const wasListeningRef = useRef(false);
+  useEffect(() => {
+    if (wasListeningRef.current && !isListening && transcript.trim() && phase === 'recording') {
+      handleStop();
+    }
+    wasListeningRef.current = isListening;
+  }, [isListening, transcript, phase, handleStop]);
 
   const isIdle = phase === 'idle';
   const isRecording = phase === 'recording';

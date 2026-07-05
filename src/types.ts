@@ -25,7 +25,7 @@ import {
   Clock
 } from 'lucide-react';
 
-export type Screen = 'landing' | 'signin' | 'home' | 'search' | 'history' | 'settings' | 'recording' | 'edit' | 'flashcards';
+export type Screen = 'landing' | 'signin' | 'home' | 'search' | 'history' | 'settings' | 'recording' | 'edit' | 'flashcards' | 'thoughtgraph';
 
 export type NoteAttachment = {
   id: string;
@@ -37,19 +37,31 @@ export type NoteAttachment = {
   size?: number;
 };
 
-export interface Note {
+// Versioned document schema for backward compatibility
+export type CrystalVersion = 'v1' | 'v2';
+
+export interface Crystal {
   id: string;
   title: string;
-  content: string;
+  content: string;       // Summary (max 100 chars)
+  body?: string;         // Full cleaned text
   type: 'task' | 'event' | 'idea' | 'audio' | 'voice' | 'text';
   timestamp: string;
   createdAt: number;
+  updatedAt?: number;    // For tracking modifications
   pinned?: boolean;
   tags?: string[];
-  body?: string;
   attachments?: NoteAttachment[];
-  mood?: string;
-  linkedNoteIds?: string[];
+
+  // Crystal-specific fields (Phase 1+)
+  mood?: string;         // e.g., "Focused", "Creative", "Neutral"
+  moodColor?: string;    // Hex color based on mood
+  linkedNoteIds?: string[];  // For auto-linking feature
+  connections?: number;  // Number of linked notes (for graph)
+  lastSeen?: number;     // Timestamp for "Forgotten Gems"
+  version?: CrystalVersion;  // Schema version
+
+  // Optional features
   coverImage?: string;
   translation?: {
     lang: string;
@@ -60,11 +72,25 @@ export interface Note {
   flashcardEnabled?: boolean;
   flashcardReview?: {
     nextReviewAt: number;
-    interval: number;
-    easeFactor: number;
+    interval: number;        // days until next review
+    easeFactor: number;      // SM-2 ease factor (default 2.5, min 1.3)
     totalReviews: number;
+    repetition: number;      // SM-2 consecutive correct reviews (resets on Again)
   };
+
+  // AI-generated metadata
+  aiConfidence?: number;          // 0-1 confidence score from the local intelligence engine
+  extractedActions?: string[];    // Action items extracted by AI
+
+  // Semantic Intelligence (Sprint 3)
+  topics?: string[];              // AI-extracted topic labels (stored, synced via Firestore)
+  topicsGeneratedAt?: number;     // When topics were last extracted
+  semanticSummary?: string;       // Short AI-generated semantic summary for embedding
+  connectionConfidence?: Record<string, number>; // noteId → confidence score for edges
 }
+
+// Keep Note as alias for backward compatibility during migration
+export type Note = Crystal;
 
 export type AuthUser = {
   id: string;
@@ -73,6 +99,16 @@ export type AuthUser = {
   phone?: string;
   createdAt: number;
   avatar?: string;   // initials only, derived from name
+
+  // User stats for streak engine
+  lastCaptureDate?: number;     // Timestamp of last note creation
+  currentStreak?: number;       // Current streak count
+  longestStreak?: number;       // All-time longest streak
+
+  // Streak freeze (1 free freeze per calendar week)
+  streakFreezeAvailable?: number;  // freezes available (0 or 1)
+  streakFreezeWeek?: number;       // ISO week number when last freeze was granted
+  streakFreezeUsedWeek?: number;   // ISO week number when freeze was last consumed
 };
 
 export type AuthState = {
@@ -80,6 +116,31 @@ export type AuthState = {
   isAuthenticated: boolean;
   isLoading: boolean;
 };
+
+// Feature flags for gradual rollout (Phase 1+)
+export interface FeatureFlags {
+  smartTagging: boolean;
+  translation: boolean;
+  noteLinking: boolean;
+  forgottenGems: boolean;
+  weeklyDigest: boolean;
+  voicePlayback: boolean;
+  flashcards: boolean;
+  pushNotifications: boolean;
+}
+
+// User settings stored in Firestore
+export interface UserSettings {
+  userId: string;
+  theme: 'light' | 'dark' | 'system';
+  featureFlags: FeatureFlags;
+  notifications: {
+    streakReminders: boolean;
+    weeklyDigest: boolean;
+    connectionHints: boolean;
+  };
+  updatedAt: number;
+}
 
 export const MOCK_NOTES: Note[] = [
   {

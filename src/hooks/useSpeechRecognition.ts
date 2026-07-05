@@ -167,42 +167,7 @@ export function useSpeechRecognition(lang: string = 'en-US'): UseSpeechRecogniti
     recognition.onend = () => {
       isListeningRef.current = false;
       setInterimText('');
-
-      // Auto-restart if we should still be listening
-      // (SpeechRecognition auto-stops after silence or max duration)
-      if (shouldRestartRef.current && SpeechRecognitionCtor) {
-        try {
-          const newRecognition = new SpeechRecognitionCtor();
-          newRecognition.continuous = true;
-          newRecognition.interimResults = true;
-          newRecognition.lang = lang;
-          newRecognition.maxAlternatives = 1;
-          newRecognition.onstart = recognition.onstart;
-          newRecognition.onresult = recognition.onresult;
-          newRecognition.onerror = recognition.onerror;
-          newRecognition.onend = recognition.onend;
-          recognitionRef.current = newRecognition;
-          
-          // Small delay before restart to avoid rapid cycling
-          setTimeout(() => {
-            if (shouldRestartRef.current) {
-              try {
-                newRecognition.start();
-              } catch (e) {
-                console.warn('Failed to restart speech recognition:', e);
-                setStatus('idle');
-                shouldRestartRef.current = false;
-              }
-            }
-          }, 100);
-        } catch (e) {
-          console.warn('Failed to create new recognition instance:', e);
-          setStatus('idle');
-          shouldRestartRef.current = false;
-        }
-      } else {
-        setStatus('idle');
-      }
+      setStatus('idle');
     };
 
     recognitionRef.current = recognition;
