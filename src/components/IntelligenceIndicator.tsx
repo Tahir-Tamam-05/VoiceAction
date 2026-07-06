@@ -33,7 +33,7 @@ export const IntelligenceIndicator: React.FC = () => {
           exit={{ opacity: 0, y: 12 }}
           transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
           className="fixed left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-2rem)]"
-          style={{ bottom: 'calc(58px + max(env(safe-area-inset-bottom, 0px), 6px) + 12px)' }}
+          style={{ bottom: 'calc(58px + max(env(safe-area-inset-bottom, 0px), 6px) + 44px)' }}
         >
           <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-surface border border-primary/15 shadow-lg">
             {status.state === 'loading' ? (

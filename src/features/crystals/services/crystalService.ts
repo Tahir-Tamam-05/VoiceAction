@@ -7,6 +7,7 @@
 
 import { Crystal, CrystalVersion } from '../../../types';
 import { isFirebaseConfigured } from '../../../config/firebase';
+import { isDevBypass } from '../../../config/devBypass';
 import { FirestoreCrystalService } from './firestoreCrystalService';
 
 // ─── Schema helpers ───────────────────────────────────────────
@@ -188,7 +189,9 @@ export class LocalStorageCrystalService implements CrystalService {
 // ─── Factory ──────────────────────────────────────────────────
 
 export function createCrystalService(): CrystalService {
-  if (isFirebaseConfigured) {
+  // Dev auth bypass has no Firebase Auth session, so Firestore writes would
+  // be rejected by security rules — bypass mode must be fully local.
+  if (isFirebaseConfigured && !isDevBypass) {
     return new FirestoreCrystalService();
   }
   return new LocalStorageCrystalService();

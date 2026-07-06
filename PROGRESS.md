@@ -130,3 +130,29 @@ Wired the app to the real Firebase project **`voiceaction-11633`**:
 - `src/routing/__tests__/routing.test.ts` (new) — 19 regression tests covering all 10 required scenarios, including "Firestore unavailable after successful auth → app still opens".
 
 **Validation:** `npm run lint` 0 errors · `npm test` 83/83 · `npm run build` clean. Firestore absence degrades gracefully to local persistence; the queued user-doc write syncs automatically once the database is created.
+
+---
+
+## Sprint 15 — Pre-Deployment Product Experience Rebuild (July 2026)
+
+Final experience upgrade before public deployment: navigation, capture, and first-open rebuilt around one visual language.
+
+**Navigation** — Search removed from the bottom nav (it duplicates the TopBar search); recomposed symmetrically as Home · History ‖ ● Record ‖ Graph · Settings with aria-labels/`aria-current`, focus rings, ≥44px targets, spring active indicator, safe areas preserved.
+
+**Recording** — state machine hardened before the redesign: `stopOnceRef` guards eliminate the rapid-Stop double-save race (both capture surfaces), `onend` no longer clobbers error status, Cancel is disabled mid-save, and mic streams/AudioContext/timers are provably torn down on stop/cancel/unmount. New `VoiceField` visualization: a Canvas-2D radial frequency architecture (96 log-mapped FFT spokes around a breathing core) + particle constellation emitting on real speech energy, driven by a parallel `useMicAnalyser` (getUserMedia → AnalyserNode) stream — zero fake audio, zero new runtime deps, deterministic fallback when the mic is unavailable, `prefers-reduced-motion` respected, processing renders as an inward collapse. The field goes live from mic audio even while the speech service handshakes.
+
+**First-open** — landing rebuilt as a looping product story (`LandingHero`): six real saved-thing fragments (reel/purchase/event/idea/link/task) scatter → get captured into orbit around the core → connect into a typed constellation → a natural-language query lights up the right memory ("that warm-up reel I saved" → FOUND). Demo-first ordering on mobile so the story is in the first viewport; copy cut to one headline + two sentences; capture-type row, trust line, three-step strip. The decorative Orb/waveform/chips were removed; capture on the landing now uses the same VoiceField as the Recording screen.
+
+**Fixes found via screenshot-driven browser validation** (Playwright, 8 viewports, dark+light): mobile hero was below the fold and clipped (reordered); constellation edges/dimmed chips too faint (retuned); IntelligenceIndicator overlapped the Stop control on recording (now nav-screens only) and the floating record button (raised offset); **dev-bypass mode wrote to Firestore without auth** once real credentials existed — demo workspace failed to load (factory now selects localStorage under bypass); recording timer now counts from mic-live.
+
+**Validation:** lint 0 errors · 83/83 tests · production build clean · 18 screenshots across 320/375/390/430/768/1024/1366/1440, both themes, inspected and iterated twice. Dev tooling added: `playwright` (devDependency) + `scripts/screenshots.mjs`.
+
+---
+
+## Final UI Polish (July 2026)
+
+- **Notifications moved to the top**: Toaster `top-center` with `offset` + `mobileOffset` = `calc(safe-area-top + 84px)` — clears the fixed TopBar and notch, stacks downward, dismissible, never covers navigation.
+- **Landing visual elevation (story/copy unchanged)**: page-wide `MemoryBackdrop` (deterministic constellation motes + short neighbor links, pointer parallax, reduced-motion static frame); hero constellation gets a radial stage vignette + slowly rotating orbital paths + glow-halo edges + crisper glass chips; headline gains gradient-ink treatment on "you almost forgot."; the three steps re-set as numbered nodes on a connection line (horizontal desktop / vertical rail mobile) — the graph language instead of generic cards; CTA rebuilt with layered specular depth. One screenshot-driven iteration: initial backdrop links read as smears → retuned (shorter links, fainter lines, brighter motes).
+- **Real bug found & fixed during validation**: the screen-transition wrapper's `y` transform made it the containing block for `position:fixed` children — the TopBar scrolled away with the page on every screen. Transition is now a pure crossfade; TopBar verified pinned while scrolled.
+
+**Validation:** lint 0 errors · 83/83 tests · build clean · screenshots at 390/1440, both themes, toast + scroll states inspected.

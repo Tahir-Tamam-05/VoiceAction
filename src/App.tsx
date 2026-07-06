@@ -185,16 +185,21 @@ export default function App() {
       {/* Offline / sync status banner */}
       <OfflineIndicator />
 
-      {/* Local intelligence model readiness (download progress / retry) */}
-      {isAuthenticated && <IntelligenceIndicator />}
+      {/* Local intelligence model readiness — only on nav-bearing screens
+          (its bottom offset is tuned to sit above the BottomNav; on the
+          recording screen it would collide with the Stop control) */}
+      {isAuthenticated && showNav && <IntelligenceIndicator />}
 
       <AnimatePresence mode="wait">
         <motion.div
           key={currentScreen}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
+          // Crossfade only — a transform here would become the containing
+          // block for every position:fixed child (TopBar!), making the fixed
+          // bars scroll away with the page.
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
           className="w-full"
         >
           {renderScreen()}
@@ -210,8 +215,12 @@ export default function App() {
 
       {/* Phase 2: Smart Notifications Toast Container */}
       <Toaster
-        position="bottom-center"
-        offset="calc(74px + env(safe-area-inset-bottom, 0px))"
+        position="top-center"
+        // Clear the fixed TopBar (h-20 = 80px) + iOS notch; on bar-less screens
+        // (recording/landing) this still sits comfortably below the status row.
+        // sonner applies `mobileOffset` instead of `offset` below 600px.
+        offset="calc(max(env(safe-area-inset-top, 0px), 8px) + 84px)"
+        mobileOffset="calc(max(env(safe-area-inset-top, 0px), 8px) + 84px)"
         toastOptions={{
           style: {
             background: 'var(--surface)',

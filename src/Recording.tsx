@@ -1,9 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+// Recording — VoiceAction's capture moment.
+//
+// One authoritative phase drives everything:
+//   initializing → listening → processing → (navigates home) | error
+//
+// Reliability guarantees (each was a real defect before this rebuild):
+//  • handleStop is guarded by stopOnceRef — rapid Stop taps and the
+//    silence-auto-stop can never double-save a note
+//  • the UI can never indicate recording after capture stopped (phase is the
+//    single source of truth; the visualization reads it directly)
+//  • speech recognition AND the analyser mic stream are both torn down on
+//    stop, cancel, and unmount — no lingering mic indicator
+//  • Cancel is disabled during processing (no double navigation mid-save)
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Screen, Note } from './types';
-import { X, Mic, Square, Sparkles, AlertTriangle } from 'lucide-react';
+import { X, Square, Sparkles, AlertTriangle, MicOff } from 'lucide-react';
 import { processNoteWithTimeout } from './features/intelligence/IntelligenceEngine';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
+import { useMicAnalyser } from './hooks/useMicAnalyser';
+import { VoiceField, usePrefersReducedMotion } from './components/VoiceField';
 
 interface RecordingScreenProps {
   setScreen: (s: Screen) => void;
@@ -11,107 +27,74 @@ interface RecordingScreenProps {
   isDark: boolean;
 }
 
-// Pre-computed stable waveform values — avoids Math.random() inside animation props
-// which re-randomize heights on every React render cycle.
-const WAVEFORM_BARS = Array.from({ length: 20 }, (_, i) => ({
-  maxH: 20 + ((i * 37 + 13) % 61),          // 20–80px, deterministic
-  duration: 0.5 + ((i * 17 + 7) % 11) / 20, // 0.5–1.0s, deterministic
-}));
+type Phase = 'initializing' | 'listening' | 'processing' | 'error';
 
 export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onSaveNote, isDark }) => {
+  const [phase, setPhase] = useState<Phase>('initializing');
   const [timer, setTimer] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
-  
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopOnceRef = useRef(false);
+  const reducedMotion = usePrefersReducedMotion();
 
   const {
-    transcript,
-    liveText,
-    isListening,
-    isSupported,
-    error: speechError,
-    startListening,
-    stopListening,
+    transcript, liveText, isListening, isSupported,
+    error: speechError, startListening, stopListening,
   } = useSpeechRecognition();
 
-  // Start listening on mount
+  const analyser = useMicAnalyser();
+
+  // ── Field size: responsive, capped ──
+  const fieldSize = Math.min(
+    340,
+    typeof window !== 'undefined' ? Math.min(window.innerWidth * 0.8, window.innerHeight * 0.4) : 300
+  );
+
+  // ── Lifecycle: start both capture paths on mount, tear down on unmount ──
   useEffect(() => {
     if (isSupported) {
       startListening();
+      analyser.start(); // parallel stream purely for the visualization
+    } else {
+      setPhase('error');
     }
     return () => {
       stopListening();
+      analyser.stop();
     };
-  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Timer
+  // Phase follows the recognition status while not stopping
   useEffect(() => {
-    if (isListening) {
-      timerRef.current = setInterval(() => {
-        setTimer(t => t + 1);
-      }, 1000);
-    } else if (!isProcessing) {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+    if (stopOnceRef.current) return;
+    if (speechError) setPhase('error');
+    else if (isListening) setPhase('listening');
+  }, [isListening, speechError]);
+
+  // ── Timer: runs while the mic is live (speech handshake may lag) ──
+  const analyserActive = analyser.status === 'active';
+  useEffect(() => {
+    if (phase === 'listening' || (phase === 'initializing' && analyserActive)) {
+      timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [isListening, isProcessing]);
+  }, [phase, analyserActive]);
 
-  // Auto-stop processing on silence (native SpeechRecognition end)
-  const wasListeningRef = useRef(false);
-  useEffect(() => {
-    if (wasListeningRef.current && !isListening && transcript.trim() && !isProcessing) {
-      handleStop();
-    }
-    wasListeningRef.current = isListening;
-  }, [isListening, transcript, isProcessing]);
+  // ── Stop: guarded so it runs exactly once ──
+  const handleStop = useCallback(async () => {
+    if (stopOnceRef.current) return;
+    stopOnceRef.current = true;
 
-  // Auto-save logic if user navigates away
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (isListening && transcript.trim()) {
-        const partialNote: Note = {
-          id: crypto.randomUUID(),
-          title: `Unfinished Note ${new Date().toLocaleDateString()}`,
-          content: transcript.slice(0, 100) + "...",
-          body: transcript,
-          type: 'voice',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          pinned: false,
-          createdAt: Date.now(),
-          mood: 'Neutral',
-          attachments: []
-        };
-        onSaveNote(partialNote);
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isListening, transcript, onSaveNote]);
-
-  const formatTime = (s: number) => {
-    const mins = Math.floor(s / 60);
-    const secs = s % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const handleStop = async () => {
     stopListening();
-    setIsProcessing(true);
-    
+    analyser.stop();
+    setPhase('processing');
+
     const finalText = transcript.trim();
-    
     if (!finalText) {
-      // Nothing was captured — go back
-      setIsProcessing(false);
       setScreen('home');
       return;
     }
@@ -119,170 +102,227 @@ export const RecordingScreen: React.FC<RecordingScreenProps> = ({ setScreen, onS
     try {
       const aiResult = await processNoteWithTimeout(finalText);
       const aiData = aiResult.success ? aiResult.data : null;
-      
-      const newNote: Note = {
+      const now = Date.now();
+      onSaveNote({
         id: crypto.randomUUID(),
         title: aiData?.title || `Voice Note ${new Date().toLocaleDateString()}`,
         content: aiData?.summary || finalText.slice(0, 100) + '…',
         body: finalText,
         type: aiData?.type || 'voice',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        pinned: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        pinned: false, createdAt: now, updatedAt: now,
         tags: aiResult.tags || [],
         mood: aiData?.mood || 'Neutral',
         attachments: [],
-      };
-      onSaveNote(newNote);
+      });
     } catch (error) {
-      console.error("[RecordingScreen] Failed to process note:", error);
-      const fallbackNote: Note = {
+      console.error('[RecordingScreen] Failed to process note:', error);
+      const now = Date.now();
+      onSaveNote({
         id: crypto.randomUUID(),
         title: `Voice Note ${new Date().toLocaleDateString()}`,
         content: finalText.slice(0, 100) + '…',
-        body: finalText,
-        type: 'voice',
+        body: finalText, type: 'voice',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        pinned: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        tags: [],
-        mood: 'Neutral',
-        attachments: [],
-      };
-      onSaveNote(fallbackNote);
+        pinned: false, createdAt: now, updatedAt: now,
+        tags: [], mood: 'Neutral', attachments: [],
+      });
     } finally {
-      setIsProcessing(false);
       setScreen('home');
     }
-  };
+  }, [transcript, stopListening, analyser, onSaveNote, setScreen]);
 
-  const handleCancel = () => {
+  // Silence auto-stop: recognition ended on its own with content captured
+  const wasListeningRef = useRef(false);
+  useEffect(() => {
+    if (wasListeningRef.current && !isListening && transcript.trim() && !stopOnceRef.current && !speechError) {
+      handleStop();
+    }
+    wasListeningRef.current = isListening;
+  }, [isListening, transcript, speechError, handleStop]);
+
+  // Partial-save safety net if the tab closes mid-recording
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (phase === 'listening' && transcript.trim()) {
+        const now = Date.now();
+        onSaveNote({
+          id: crypto.randomUUID(),
+          title: `Unfinished Note ${new Date().toLocaleDateString()}`,
+          content: transcript.slice(0, 100) + '…',
+          body: transcript, type: 'voice',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          pinned: false, createdAt: now, updatedAt: now, mood: 'Neutral', attachments: [],
+        });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [phase, transcript, onSaveNote]);
+
+  const handleCancel = useCallback(() => {
+    if (phase === 'processing') return; // save in flight — let it finish
+    stopOnceRef.current = true;         // block any late auto-stop save
     stopListening();
-    setIsProcessing(false);
+    analyser.stop();
     setScreen('home');
-  };
+  }, [phase, stopListening, analyser, setScreen]);
+
+  const formatTime = (s: number) =>
+    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  const isProcessing = phase === 'processing';
+  const micDenied = analyser.status === 'denied';
+
+  // The analyser goes live the instant the mic opens — the field (and the
+  // status) shouldn't wait for the speech service handshake.
+  const micLive = analyser.status === 'active';
+  const statusLabel =
+    isProcessing ? 'Crystallizing your thought'
+    : phase === 'listening' || micLive ? 'Listening'
+    : phase === 'error' ? 'Microphone unavailable'
+    : 'Preparing microphone';
 
   return (
-    <div className="min-h-screen bg-base flex flex-col items-center justify-center px-6 relative overflow-hidden transition-colors duration-300">
-      {/* Background Glows */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
-      
-      <button 
-        onClick={handleCancel}
-        className="absolute right-6 text-text-secondary/40 hover:text-on-surface transition-colors z-20"
-        style={{ top: 'max(env(safe-area-inset-top, 0px) + 12px, 48px)' }}
+    <div className="min-h-screen bg-base flex flex-col items-center relative overflow-hidden transition-colors duration-300">
+
+      {/* ── Top status row ── */}
+      <div
+        className="w-full max-w-md flex items-center justify-between px-6 z-20"
+        style={{ paddingTop: 'max(env(safe-area-inset-top, 0px) + 16px, 28px)' }}
       >
-        <X size={32} />
-      </button>
-
-      <div className="text-center z-10 w-full max-w-md">
-        <div className="mb-4">
-          <p className="text-[11px] font-bold text-primary uppercase tracking-[0.4em] mb-2">
-            {isProcessing ? 'Processing with AI' : isListening ? 'Live Recording' : 'Ready'}
-          </p>
-          <h2 className="text-6xl font-headline font-extrabold text-on-surface tracking-tighter">{formatTime(timer)}</h2>
-        </div>
-
-        {/* Browser support warning */}
-        {!isSupported && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4 flex items-center gap-3"
-          >
-            <AlertTriangle size={20} className="text-orange-500 flex-shrink-0" />
-            <p className="text-sm text-on-surface/80 text-left">
-              Speech recognition is not supported in this browser. Please use <strong>Chrome</strong> or <strong>Edge</strong> for voice capture.
-            </p>
-          </motion.div>
-        )}
-
-        {/* Speech error */}
-        {speechError && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 bg-red-500/10 border border-red-500/20 rounded-2xl p-4 flex items-center gap-3"
-          >
-            <AlertTriangle size={20} className="text-red-500 flex-shrink-0" />
-            <p className="text-sm text-on-surface/80 text-left">{speechError}</p>
-          </motion.div>
-        )}
-
-        {/* Waveform Visualization */}
-        <div className="h-32 flex items-center justify-center gap-1.5 mb-12">
-          {WAVEFORM_BARS.map((bar, i) => (
-            <motion.div
-              key={i}
-              animate={{
-                height: isListening ? [20, bar.maxH, 20] : 4,
-                opacity: isListening ? 1 : 0.2,
-              }}
-              transition={{
-                repeat: Infinity,
-                duration: bar.duration,
-                ease: 'easeInOut',
-              }}
-              className="w-1.5 bg-primary rounded-full"
+        <div className="flex items-center gap-2.5 min-h-[44px]">
+          {phase === 'listening' && (
+            <motion.span
+              animate={reducedMotion ? {} : { opacity: [1, 0.25, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+              className="w-2 h-2 rounded-full bg-primary"
+              aria-hidden
             />
-          ))}
+          )}
+          <span className="text-[10px] font-black uppercase tracking-[0.28em] text-primary" role="status">
+            {statusLabel}
+          </span>
         </div>
-
-        {/* Live Transcript Preview */}
-        <div className="max-w-md mx-auto mb-16 min-h-[96px] max-h-48 overflow-y-auto relative px-2">
-          <p className={`text-lg font-medium leading-relaxed ${
-            liveText 
-              ? 'text-on-surface/80' 
-              : 'text-on-surface/25 italic'
-          }`}>
-            {liveText || (isSupported ? 'Listening for your voice...' : 'Voice capture unavailable')}
-          </p>
-          <div className="sticky bottom-0 left-0 w-full h-8 bg-gradient-to-t from-base to-transparent pointer-events-none" />
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center justify-center gap-8">
-          <AnimatePresence mode="wait">
-            {isProcessing ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center gap-4"
-              >
-                <div className="w-20 h-20 rounded-full border-4 border-primary border-t-transparent animate-spin" />
-                <div className="flex items-center gap-2 text-primary">
-                  <Sparkles size={18} />
-                  <span className="text-sm font-bold uppercase tracking-widest">Processing...</span>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                onClick={handleStop}
-                disabled={!liveText.trim() && !transcript.trim()}
-                className="w-24 h-24 rounded-full bg-primary flex items-center justify-center text-black shadow-[0_0_40px_rgba(249,115,22,0.4)] hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Square size={32} fill="currentColor" />
-              </motion.button>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Hint */}
-        {isListening && !liveText && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 2 }}
-            className="mt-8 text-[10px] text-text-secondary/40 font-bold uppercase tracking-widest"
+        <div className="flex items-center gap-3">
+          <span
+            className="text-xl font-headline font-extrabold text-on-surface tabular-nums"
+            aria-label={`Recording duration ${formatTime(timer)}`}
           >
-            Speak clearly into your microphone
-          </motion.p>
-        )}
+            {formatTime(timer)}
+          </span>
+          <button
+            onClick={handleCancel}
+            disabled={isProcessing}
+            aria-label="Cancel recording"
+            className="w-11 h-11 -mr-2 rounded-xl flex items-center justify-center text-text-secondary/50 hover:text-on-surface transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+          >
+            <X size={22} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Voice field ── */}
+      <div className="flex-1 flex flex-col items-center justify-center w-full px-6 z-10 min-h-0">
+        <VoiceField
+          phase={
+            isProcessing ? 'processing'
+            : phase === 'error' ? 'error'
+            : phase === 'listening' || micLive ? 'listening'
+            : 'idle'
+          }
+          readFrequencies={analyser.status === 'active' ? analyser.readFrequencies : undefined}
+          readLevel={analyser.status === 'active' ? analyser.readLevel : undefined}
+          isDark={isDark}
+          size={fieldSize}
+          reducedMotion={reducedMotion}
+        />
+
+        {/* Error panels */}
+        <AnimatePresence>
+          {!isSupported && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="mt-4 max-w-sm bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4 flex items-center gap-3"
+            >
+              <AlertTriangle size={20} className="text-orange-500 flex-shrink-0" aria-hidden />
+              <p className="text-sm text-on-surface/80 text-left">
+                Speech recognition is not supported in this browser. Please use <strong>Chrome</strong> or <strong>Edge</strong> for voice capture.
+              </p>
+            </motion.div>
+          )}
+          {speechError && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="mt-4 max-w-sm bg-red-500/10 border border-red-500/20 rounded-2xl p-4 flex items-center gap-3"
+            >
+              <MicOff size={20} className="text-red-500 flex-shrink-0" aria-hidden />
+              <p className="text-sm text-on-surface/80 text-left">{speechError}</p>
+            </motion.div>
+          )}
+          {micDenied && !speechError && (
+            <motion.p
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="mt-3 text-[10px] font-bold uppercase tracking-widest text-text-secondary/50"
+            >
+              Visualizer muted — mic access denied for level data
+            </motion.p>
+          )}
+        </AnimatePresence>
+
+        {/* ── Live transcript ── */}
+        <div
+          className="w-full max-w-md mt-6 rounded-2xl border px-5 py-4 max-h-36 overflow-y-auto"
+          style={{
+            background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)',
+            borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+          }}
+          aria-live="polite"
+        >
+          <p className={`text-[15px] font-medium leading-relaxed ${
+            liveText ? 'text-on-surface/80' : 'text-on-surface/25 italic'
+          }`}>
+            {liveText || (isSupported ? 'Say what you want to remember…' : 'Voice capture unavailable')}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Controls ── */}
+      <div
+        className="w-full flex items-center justify-center z-10"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 28px, 44px)' }}
+      >
+        <AnimatePresence mode="wait">
+          {isProcessing ? (
+            <motion.div
+              key="processing"
+              initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}
+              className="flex items-center gap-2.5 text-primary py-6"
+            >
+              <Sparkles size={16} aria-hidden />
+              <span className="text-[11px] font-black uppercase tracking-[0.25em]">Saving…</span>
+            </motion.div>
+          ) : (
+            <motion.button
+              key="stop"
+              initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }}
+              onClick={handleStop}
+              disabled={phase === 'error' && !transcript.trim()}
+              aria-label="Stop recording and save"
+              className="group flex items-center gap-3 pl-5 pr-7 h-[64px] rounded-full transition-all active:scale-95 disabled:opacity-35 disabled:cursor-not-allowed"
+              style={{
+                background: '#f97316',
+                color: '#000',
+                boxShadow: '0 0 0 1px rgba(249,115,22,0.3), 0 0 44px rgba(249,115,22,0.4)',
+              }}
+            >
+              <span className="w-11 h-11 rounded-full bg-black/15 flex items-center justify-center">
+                <Square size={17} fill="currentColor" aria-hidden />
+              </span>
+              <span className="text-[12px] font-black uppercase tracking-[0.2em]">Stop &amp; Save</span>
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

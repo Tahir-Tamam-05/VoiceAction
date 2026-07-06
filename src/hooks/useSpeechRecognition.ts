@@ -167,7 +167,10 @@ export function useSpeechRecognition(lang: string = 'en-US'): UseSpeechRecogniti
     recognition.onend = () => {
       isListeningRef.current = false;
       setInterimText('');
-      setStatus('idle');
+      // Don't clobber an error status (e.g. permission denied) — onend fires
+      // right after onerror and previously erased it, leaving the UI showing
+      // "idle" while the error message was still displayed.
+      setStatus((prev) => (prev === 'error' ? prev : 'idle'));
     };
 
     recognitionRef.current = recognition;
